@@ -269,10 +269,10 @@ fn new_partial<RuntimeApi, Executor>(config: &mut Configuration) -> Result<
 	})
 }
 
-fn real_overseer<Spawner, RuntimeClient>(
+fn real_overseer<Spawner, RuntimeClient, Block>(
 	leaves: impl IntoIterator<Item = BlockInfo>,
 	keystore: SyncCryptoStorePtr,
-	runtime_client: RuntimeClient,
+	runtime_client: Arc<RuntimeClient>,
 	availability_config: AvailabilityConfig,
 	network_service: Arc<sc_network::NetworkService<Block, Hash>>,
 	authority_discovery: AuthorityDiscoveryService,
@@ -280,6 +280,7 @@ fn real_overseer<Spawner, RuntimeClient>(
 	spawner: Spawner,
 ) -> Result<(Overseer<Spawner>, OverseerHandler), ServiceError>
 where
+	Block: BlockT,
 	RuntimeClient: 'static + ProvideRuntimeApi<Block> + HeaderBackend<Block>,
 	RuntimeClient::Api: ParachainHost<Block>,
 	Spawner: 'static + SpawnNamed + Clone + Unpin,
@@ -472,7 +473,6 @@ pub fn new_full<RuntimeApi, Executor>(
 
 	let (block_import, link_half, babe_link) = import_setup;
 
-	let overseer_client = client.clone();
 	let spawner = task_manager.spawn_handle();
 	let leaves: Vec<_> = select_chain.clone()
 		.leaves()
@@ -541,13 +541,14 @@ pub fn new_full<RuntimeApi, Executor>(
 			let (overseer, overseer_handler) = real_overseer(
 				leaves,
 				keystore_container.sync_keystore(),
-				overseer_client,
+				client.clone(),
 				config.database.try_into()?,
 				network.clone(),
 				authority_discovery_service,
 				prometheus_registry.as_ref(),
 				spawner,
 			)?;
+			let overseer_client = client.clone();
 			let overseer_handler_clone = overseer_handler.clone();
 
 			task_manager.spawn_essential_handle().spawn_blocking("overseer", Box::pin(async move {
