@@ -35,9 +35,12 @@ use polkadot_subsystem::{
 use polkadot_node_subsystem_util::{
 	metrics::{self, prometheus},
 };
-use polkadot_primitives::v1::{BlockId, BlockNumber, Hash};
+use polkadot_primitives::v1::{BlockNumber, Hash};
 use sp_blockchain::HeaderBackend;
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use sp_runtime::{
+	generic::BlockId,
+	traits::{Block as BlockT, Header as HeaderT},
+};
 
 use futures::prelude::*;
 
