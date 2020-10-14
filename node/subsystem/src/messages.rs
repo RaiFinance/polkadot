@@ -31,12 +31,10 @@ use polkadot_node_primitives::{
 	CollationGenerationConfig, MisbehaviorReport, SignedFullStatement, ValidationResult,
 };
 use polkadot_primitives::v1::{
-	AuthorityDiscoveryId, AvailableData, BackedCandidate, BlockNumber,
-	Header as BlockHeader, CandidateDescriptor, CandidateEvent, CandidateReceipt,
-	CollatorId, CommittedCandidateReceipt, CoreState, ErasureChunk,
-	GroupRotationInfo, Hash, Id as ParaId, OccupiedCoreAssumption,
-	PersistedValidationData, PoV, SessionIndex, SignedAvailabilityBitfield,
-	TransientValidationData, ValidationCode, ValidatorId, ValidationData,
+	AuthorityDiscoveryId, AvailableData, BackedCandidate, CandidateDescriptor, CandidateEvent,
+	CandidateReceipt, CollatorId, CommittedCandidateReceipt, CoreState, ErasureChunk, GroupRotationInfo,
+	Hash, Id as ParaId, OccupiedCoreAssumption, PersistedValidationData, PoV, SessionIndex,
+	SignedAvailabilityBitfield, TransientValidationData, ValidationCode, ValidationData, ValidatorId,
 	ValidatorIndex, ValidatorSignature,
 };
 use std::sync::Arc;
@@ -333,7 +331,7 @@ pub type ChainApiResponseChannel<T> = oneshot::Sender<Result<T, crate::errors::C
 
 /// Chain API request subsystem message.
 #[derive(Debug)]
-pub enum ChainApiMessage {
+pub enum ChainApiMessage<BlockHeader, BlockNumber, BlockHash> {
 	/// Request the block number by hash.
 	/// Returns `None` if a block with the given hash is not present in the db.
 	BlockNumber(Hash, ChainApiResponseChannel<Option<BlockNumber>>),
@@ -343,7 +341,7 @@ pub enum ChainApiMessage {
 	/// Request the finalized block hash by number.
 	/// Returns `None` if a block with the given number is not present in the db.
 	/// Note: the caller must ensure the block is finalized.
-	FinalizedBlockHash(BlockNumber, ChainApiResponseChannel<Option<Hash>>),
+	FinalizedBlockHash(BlockNumber, ChainApiResponseChannel<Option<BlockHash>>),
 	/// Request the last finalized block number.
 	/// This request always succeeds.
 	FinalizedBlockNumber(ChainApiResponseChannel<BlockNumber>),
@@ -357,16 +355,31 @@ pub enum ChainApiMessage {
 		/// The number of ancestors to request.
 		k: usize,
 		/// The response channel.
-		response_channel: ChainApiResponseChannel<Vec<Hash>>,
+		response_channel: ChainApiResponseChannel<Vec<BlockHash>>,
 	},
 }
 
-impl ChainApiMessage {
+impl<BlockHeader, BlockNumber, BlockHash> ChainApiMessage<BlockHeader, BlockNumber, BlockHash> {
 	/// If the current variant contains the relay parent hash, return it.
 	pub fn relay_parent(&self) -> Option<Hash> {
 		None
 	}
 }
+
+/// Trait bounding any ChainApiMessage
+///
+/// This reduces the number of generic parameters on Allmessages.
+///
+/// This trait is sealed: it cannot be implemented for types outside this crate.
+pub trait ChainApiMessageTrait: 'static + sealed::Sealed + std::fmt::Debug + Send + Sync {}
+
+impl<BlockHeader, BlockNumber, BlockHash> ChainApiMessageTrait
+	for ChainApiMessage<BlockHeader, BlockNumber, BlockHash>
+where
+	BlockHeader: 'static + std::fmt::Debug + Send + Sync,
+	BlockNumber: 'static + std::fmt::Debug + Send + Sync,
+	BlockHash: 'static + std::fmt::Debug + Send + Sync,
+{}
 
 /// A sender for the result of a runtime API request.
 pub type RuntimeApiSender<T> = oneshot::Sender<Result<T, crate::errors::RuntimeApiError>>;
@@ -541,6 +554,16 @@ impl CollationGenerationMessage {
 	}
 }
 
+mod sealed {
+	/// This trait prevents external implementation of traits which are bounded to this module.
+	///
+	/// See https://rust-lang.github.io/api-guidelines/future-proofing.html
+	pub trait Sealed {}
+
+	impl<BlockHeader, BlockNumber, BlockHash> Sealed
+		for super::ChainApiMessage<BlockHeader, BlockNumber, BlockHash> {}
+}
+
 /// A message type tying together all message types that are used across Subsystems.
 #[derive(Debug, derive_more::From)]
 pub enum AllMessages {
@@ -551,7 +574,7 @@ pub enum AllMessages {
 	/// Message for the candidate selection subsystem.
 	CandidateSelection(CandidateSelectionMessage),
 	/// Message for the Chain API subsystem.
-	ChainApi(ChainApiMessage),
+	ChainApi(Box<dyn ChainApiMessageTrait>),
 	/// Message for the Collator Protocol subsystem.
 	CollatorProtocol(CollatorProtocolMessage),
 	/// Message for the statement distribution subsystem.

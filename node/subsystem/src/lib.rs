@@ -195,14 +195,16 @@ pub trait SubsystemContext: Send + 'static {
 	async fn send_message(&mut self, msg: AllMessages) -> SubsystemResult<()>;
 
 	/// Send multiple direct messages to other `Subsystem`s, routed based on message type.
-	async fn send_messages<T>(&mut self, msgs: T) -> SubsystemResult<()>
-		where T: IntoIterator<Item = AllMessages> + Send, T::IntoIter: Send;
+	async fn send_messages<Msgs>(&mut self, msgs: Msgs) -> SubsystemResult<()>
+		where
+			Msgs: IntoIterator<Item = AllMessages> + Send,
+			Msgs::IntoIter: Send;
 }
 
 /// A trait that describes the [`Subsystem`]s that can run on the [`Overseer`].
 ///
 /// It is generic over the message type circulating in the system.
-/// The idea that we want some type contaning persistent state that
+/// The idea that we want some type containing persistent state that
 /// can spawn actually running subsystems when asked to.
 ///
 /// [`Overseer`]: struct.Overseer.html

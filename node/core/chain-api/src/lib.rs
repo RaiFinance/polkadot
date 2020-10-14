@@ -35,30 +35,35 @@ use polkadot_subsystem::{
 use polkadot_node_subsystem_util::{
 	metrics::{self, prometheus},
 };
-use polkadot_primitives::v1::{Block, BlockId};
+use polkadot_primitives::v1::{BlockId, BlockNumber, Hash};
 use sp_blockchain::HeaderBackend;
+use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 
 use futures::prelude::*;
 
 /// The Chain API Subsystem implementation.
-pub struct ChainApiSubsystem<Client> {
+pub struct ChainApiSubsystem<Block, Client> {
+	_block: std::marker::PhantomData<Block>,
 	client: Client,
 	metrics: Metrics,
 }
 
-impl<Client> ChainApiSubsystem<Client> {
+impl<Block, Client> ChainApiSubsystem<Block, Client> {
 	/// Create a new Chain API subsystem with the given client.
 	pub fn new(client: Client, metrics: Metrics) -> Self {
 		ChainApiSubsystem {
+			_block: std::marker::PhantomData,
 			client,
 			metrics,
 		}
 	}
 }
 
-impl<Client, Context> Subsystem<Context> for ChainApiSubsystem<Client> where
+impl<Block, Header, Client, Context> Subsystem<Context> for ChainApiSubsystem<Block, Client> where
+	Block: BlockT<Hash=Hash, Header=Header>,
+	Header: HeaderT<Hash=Hash, Number=BlockNumber>,
 	Client: HeaderBackend<Block> + 'static,
-	Context: SubsystemContext<Message = ChainApiMessage>
+	Context: SubsystemContext<Message = ChainApiMessage<Header, Header::Number, Hash>>
 {
 	fn start(self, ctx: Context) -> SpawnedSubsystem {
 		SpawnedSubsystem {
@@ -68,12 +73,15 @@ impl<Client, Context> Subsystem<Context> for ChainApiSubsystem<Client> where
 	}
 }
 
-async fn run<Client>(
-	mut ctx: impl SubsystemContext<Message = ChainApiMessage>,
-	subsystem: ChainApiSubsystem<Client>,
+async fn run<Block, Header, Client, Context>(
+	mut ctx: Context,
+	subsystem: ChainApiSubsystem<Block, Client>,
 ) -> SubsystemResult<()>
 where
+	Block: BlockT<Hash=Hash, Header=Header>,
+	Header: HeaderT<Hash=Hash, Number=BlockNumber>,
 	Client: HeaderBackend<Block>,
+	Context: SubsystemContext<Message = ChainApiMessage<Header, Header::Number, Hash>>,
 {
 	loop {
 		match ctx.recv().await? {
@@ -116,7 +124,7 @@ where
 							// fewer than `k` ancestors are available
 							Ok(None) => None,
 							Ok(Some(header)) => {
-								hash = header.parent_hash;
+								hash = *header.parent_hash();
 								Some(Ok(hash))
 							}
 						}
@@ -251,7 +259,11 @@ mod tests {
 			.unwrap()
 	}
 
-	impl HeaderBackend<Block> for TestClient {
+	impl<Block, Header> HeaderBackend<Block> for TestClient
+	where
+		Block: BlockT<Hash=Hash, Header=Header>,
+		Header: HeaderT<Number=Number>,
+	{
 		fn info(&self) -> BlockInfo<Block> {
 			let genesis_hash = self.blocks.iter().next().map(|(h, _)| *h).unwrap();
 			let (best_hash, best_number) = last_key_value(&self.blocks);
