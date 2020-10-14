@@ -76,7 +76,7 @@ use client::{BlockImportNotification, BlockchainEvents, FinalityNotification};
 
 use polkadot_subsystem::messages::{
 	CandidateValidationMessage, CandidateBackingMessage,
-	CandidateSelectionMessage, ChainApiMessage, StatementDistributionMessage,
+	CandidateSelectionMessage, ChainApiMessageTrait, StatementDistributionMessage,
 	AvailabilityDistributionMessage, BitfieldSigningMessage, BitfieldDistributionMessage,
 	ProvisionerMessage, PoVDistributionMessage, RuntimeApiMessage,
 	AvailabilityStoreMessage, NetworkBridgeMessage, AllMessages, CollationGenerationMessage, CollatorProtocolMessage,
@@ -396,7 +396,7 @@ pub struct Overseer<S> {
 	network_bridge_subsystem: OverseenSubsystem<NetworkBridgeMessage>,
 
 	/// A Chain API subsystem.
-	chain_api_subsystem: OverseenSubsystem<ChainApiMessage>,
+	chain_api_subsystem: OverseenSubsystem<Box<dyn ChainApiMessageTrait>>,
 
 	/// A Collation Generation subsystem.
 	collation_generation_subsystem: OverseenSubsystem<CollationGenerationMessage>,
@@ -1053,7 +1053,7 @@ where
 		RA: Subsystem<OverseerSubsystemContext<RuntimeApiMessage>> + Send,
 		AS: Subsystem<OverseerSubsystemContext<AvailabilityStoreMessage>> + Send,
 		NB: Subsystem<OverseerSubsystemContext<NetworkBridgeMessage>> + Send,
-		CA: Subsystem<OverseerSubsystemContext<ChainApiMessage>> + Send,
+		CA: Subsystem<OverseerSubsystemContext<Box<dyn ChainApiMessageTrait>>> + Send,
 		CG: Subsystem<OverseerSubsystemContext<CollationGenerationMessage>> + Send,
 		CP: Subsystem<OverseerSubsystemContext<CollatorProtocolMessage>> + Send,
 	{

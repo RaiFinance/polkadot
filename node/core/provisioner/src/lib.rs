@@ -27,7 +27,7 @@ use futures::{
 use polkadot_node_subsystem::{
 	errors::{ChainApiError, RuntimeApiError},
 	messages::{
-		AllMessages, ChainApiMessage, ProvisionableData, ProvisionerInherentData,
+		AllMessages, ChainApiMessage, ChainApiMessageTrait, ProvisionableData, ProvisionerInherentData,
 		ProvisionerMessage, RuntimeApiMessage,
 	},
 };
@@ -38,7 +38,7 @@ use polkadot_node_subsystem_util::{
 	metrics::{self, prometheus},
 };
 use polkadot_primitives::v1::{
-	BackedCandidate, BlockNumber, CoreState, Hash, OccupiedCoreAssumption,
+	BackedCandidate, BlockNumber, CoreState, Hash, Header as BlockHeader, OccupiedCoreAssumption,
 	SignedAvailabilityBitfield,
 };
 use std::{collections::HashMap, convert::TryFrom, pin::Pin};
@@ -90,7 +90,7 @@ impl From<ProvisionerMessage> for ToJob {
 }
 
 enum FromJob {
-	ChainApi(ChainApiMessage),
+	ChainApi(Box<dyn ChainApiMessageTrait>),
 	Runtime(RuntimeApiMessage),
 }
 
@@ -418,10 +418,10 @@ async fn get_block_number_under_construction(
 ) -> Result<BlockNumber, Error> {
 	let (tx, rx) = oneshot::channel();
 	sender
-		.send(FromJob::ChainApi(ChainApiMessage::BlockNumber(
+		.send(FromJob::ChainApi(Box::new(ChainApiMessage::<BlockHeader, BlockNumber, Hash>::BlockNumber(
 			relay_parent,
 			tx,
-		)))
+		))))
 		.await
 		.map_err(|_| Error::OneshotSend)?;
 	match rx.await? {
