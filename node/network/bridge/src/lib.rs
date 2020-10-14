@@ -21,9 +21,11 @@ use futures::prelude::*;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::channel::{mpsc, oneshot};
+use futures::task::{Poll, Context};
 
 use sc_network::Event as NetworkEvent;
 use sp_runtime::ConsensusEngineId;
+use sp_runtime::traits::Block as BlockT;
 
 use polkadot_subsystem::{
 	ActiveLeavesUpdate, FromOverseer, OverseerSignal, Subsystem, SubsystemContext, SpawnedSubsystem, SubsystemError,
@@ -34,7 +36,7 @@ use polkadot_subsystem::messages::{
 	BitfieldDistributionMessage, PoVDistributionMessage, StatementDistributionMessage,
 	CollatorProtocolMessage,
 };
-use polkadot_primitives::v1::{AuthorityDiscoveryId, Block, Hash};
+use polkadot_primitives::v1::{AuthorityDiscoveryId, Hash};
 use polkadot_node_network_protocol::{
 	ObservedRole, ReputationChange, PeerId, PeerSet, View, NetworkBridgeEvent, v1 as protocol_v1
 };
@@ -132,7 +134,51 @@ pub trait Network: Send + 'static {
 	}
 }
 
-impl Network for Arc<sc_network::NetworkService<Block, Hash>> {
+// wrapper around a NetworkService to make it act like a sink.
+struct ActionSink<'b, Block: BlockT>(&'b sc_network::NetworkService<Block, Hash>, std::marker::PhantomData<Block>);
+
+impl<'b, Block: BlockT> Sink<NetworkAction> for ActionSink<'b, Block> {
+	type Error = SubsystemError;
+
+	fn poll_ready(self: Pin<&mut Self>, _: &mut Context) -> Poll<SubsystemResult<()>> {
+		Poll::Ready(Ok(()))
+	}
+
+	fn start_send(self: Pin<&mut Self>, action: NetworkAction) -> SubsystemResult<()> {
+		match action {
+			NetworkAction::ReputationChange(peer, cost_benefit) => self.0.report_peer(
+				peer,
+				cost_benefit,
+			),
+			NetworkAction::WriteNotification(peer, peer_set, message) => {
+				match peer_set {
+					PeerSet::Validation => self.0.write_notification(
+						peer,
+						VALIDATION_PROTOCOL_ID,
+						message,
+					),
+					PeerSet::Collation => self.0.write_notification(
+						peer,
+						COLLATION_PROTOCOL_ID,
+						message,
+					),
+				}
+			}
+		}
+
+		Ok(())
+	}
+
+	fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<SubsystemResult<()>> {
+		Poll::Ready(Ok(()))
+	}
+
+	fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<SubsystemResult<()>> {
+		Poll::Ready(Ok(()))
+	}
+}
+
+impl<Block: BlockT> Network for Arc<sc_network::NetworkService<Block, Hash>> {
 	fn event_stream(&mut self) -> BoxStream<'static, NetworkEvent> {
 		sc_network::NetworkService::event_stream(self, "polkadot-network-bridge").boxed()
 	}
@@ -140,53 +186,7 @@ impl Network for Arc<sc_network::NetworkService<Block, Hash>> {
 	fn action_sink<'a>(&'a mut self)
 		-> Pin<Box<dyn Sink<NetworkAction, Error = SubsystemError> + Send + 'a>>
 	{
-		use futures::task::{Poll, Context};
-
-		// wrapper around a NetworkService to make it act like a sink.
-		struct ActionSink<'b>(&'b sc_network::NetworkService<Block, Hash>);
-
-		impl<'b> Sink<NetworkAction> for ActionSink<'b> {
-			type Error = SubsystemError;
-
-			fn poll_ready(self: Pin<&mut Self>, _: &mut Context) -> Poll<SubsystemResult<()>> {
-				Poll::Ready(Ok(()))
-			}
-
-			fn start_send(self: Pin<&mut Self>, action: NetworkAction) -> SubsystemResult<()> {
-				match action {
-					NetworkAction::ReputationChange(peer, cost_benefit) => self.0.report_peer(
-						peer,
-						cost_benefit,
-					),
-					NetworkAction::WriteNotification(peer, peer_set, message) => {
-						match peer_set {
-							PeerSet::Validation => self.0.write_notification(
-								peer,
-								VALIDATION_PROTOCOL_ID,
-								message,
-							),
-							PeerSet::Collation => self.0.write_notification(
-								peer,
-								COLLATION_PROTOCOL_ID,
-								message,
-							),
-						}
-					}
-				}
-
-				Ok(())
-			}
-
-			fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<SubsystemResult<()>> {
-				Poll::Ready(Ok(()))
-			}
-
-			fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<SubsystemResult<()>> {
-				Poll::Ready(Ok(()))
-			}
-		}
-
-		Box::pin(ActionSink(&**self))
+		Box::pin(ActionSink(&**self, std::marker::PhantomData::<Block>))
 	}
 }
 
