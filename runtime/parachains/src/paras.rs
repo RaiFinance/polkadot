@@ -176,7 +176,6 @@ pub struct ParaGenesisArgs {
 	pub parachain: bool,
 }
 
-
 decl_storage! {
 	trait Store for Module<T: Trait> as Paras {
 		/// All parachains. Ordered ascending by ParaId. Parathreads are not included.
@@ -540,6 +539,12 @@ impl<T: Trait> Module<T> {
 				Some(UseCodeAt::ReplacedAt(replaced)) => <Self as Store>::PastCode::get(&(id, replaced))
 			}
 		}
+	}
+
+	/// Returns whether the given ID refers to a valid para.
+	pub(crate) fn is_valid_para(id: ParaId) -> bool {
+		Self::parachains().binary_search(&id).is_ok()
+			|| Self::is_parathread(id)
 	}
 
 	/// Whether a para ID corresponds to any live parathread.
